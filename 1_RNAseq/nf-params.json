@@ -1,0 +1,9 @@
+{
+    "input": "samplesheet.csv",
+    "fasta": "GCF_002263795.1_ARS-UCD1.2_genomic.fa",
+    "gtf": "GCF_002263795.1_ARS-UCD1.2_genomic.mod.gtf",
+    "aligner": "star_salmon",
+    "remove_ribo_rna": true,
+    "salmon_quant_libtype": "ISR",
+    "skip_biotype_qc": true
+}

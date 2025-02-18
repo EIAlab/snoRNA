@@ -1,0 +1,606 @@
+---
+title: "MAP miRNA - Faith"
+author: "Based on DESeq2 manuel"
+date: "2024/05/11"
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+  word_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+#clear workspace
+rm(list= ls())
+
+References:
+
+https://bioconductor.org/packages/release/bioc/html/DESeq2.html
+https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html
+https://bioconductor.org/packages/release/bioc/manuals/DESeq2/man/DESeq2.pdf
+https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.R
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Librairies
+```{r librairies, message=FALSE}
+# Date
+format(Sys.Date(), format="%d %B %Y")
+# Language
+Sys.setenv(LANG = "en_US.UTF-8")
+
+
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+
+install.packages("BiocManager")
+BiocManager::install("DESeq2")
+BiocManager::install("edgeR")
+install.packages("kableExtra")
+BiocManager::install("apeglm")
+BiocManager::install("IHW")
+BiocManager::install("vsn")
+BiocManager::install("pheatmap")
+install.packages("hexbin")
+install.packages("rmarkdown")
+
+
+#Libraries
+library(DESeq2)
+library(edgeR)
+library(kableExtra)
+library(apeglm)
+library("IHW")
+library("vsn")
+library("pheatmap")
+library("RColorBrewer")
+library("ggplot2")
+library("hexbin")
+library("BiocParallel")
+library(knitr)
+
+register(SnowParam(4))
+```
+
+# Standard workflow
+## Input data
+### Count matrix input
+https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#count-matrix-input
+```{r inputs}
+###############
+# Count intputs
+cts_snoRNA <- (read.csv("./snoRNA_SA/SNORNA_counts_NEW.csv", 
+                        header = TRUE, 
+                        stringsAsFactors = FALSE, 
+                        row.names = 1,
+                        sep = ","))
+
+# Transposition and matrix conversions.
+#cts_snoRNA <- as.matrix(t(cts_snoRNA)) 
+
+
+###filter to remove S. aureus
+
+cts_snoRNA <- cts_snoRNA[,-c(7:9,11,13,17,24,26)]
+
+
+kable(head(cts_snoRNA[, 1:18]))  %>% kable_styling()
+
+dim(cts_snoRNA)
+str(cts_snoRNA)
+
+
+
+
+###############
+# coldata
+# Is factor required for Parity and DIM? If not, Parity and DIM will be as quantitative value.
+coldata <- read.csv('coldata.csv', 
+                    header = TRUE,
+                    sep = '',
+                    stringsAsFactors = TRUE,
+                    row.names = 1)
+
+coldata <- coldata[order(rownames(coldata)), ] # coldata is ordered by rownames.
+
+coldata$DIM <- as.factor(coldata$DIM)
+
+
+coldata <- coldata[-c(7:9,11,13,17,24,26), ]
+
+
+
+dim(coldata)
+str(coldata)
+kable(coldata) %>% kable_styling()
+
+
+
+###############
+# Names
+# It is absolutely critical that the columns of the count matrix and the rows of the coldata are in the same order.
+
+v1 <- rownames(coldata)
+
+cts_snoRNA <- cts_snoRNA[, v1]
+
+
+dim(cts_snoRNA)
+str(cts_snoRNA)
+
+
+kable(head(cts_snoRNA[, 1:18])) %>% kable_styling()
+
+  
+
+
+###############
+# Double check names
+# The following 4 codes must give TRUE!
+all(rownames(coldata) %in% colnames(cts_snoRNA)) # Must be TRUE
+all(rownames(coldata) == colnames(cts_snoRNA)) # Must be TRUE 
+```
+#Count Deseqdataset
+
+```{r}
+#Mature
+dds1 <- DESeqDataSetFromMatrix(countData = cts_snoRNA,
+                              colData = coldata,
+                              design = ~Lactation_stage + Parity + Treatment)
+
+
+```
+### Pre-filtering
+```{r Filtering}
+#Mature
+keep <- rowSums(counts(dds1)) >= 10
+dds1 <- dds1[keep,]
+
+```
+
+###Data transformation and visualization
+```{r}
+#### Extracting transformed values
+
+##### Extracting transformed values
+
+
+# Data transformations and visualization
+#{r Transformations}
+##### Extracting transformed values
+
+#Mature
+vsd1 <- varianceStabilizingTransformation(dds1)
+kable(head(assay(vsd1), 3)) %>% kable_styling()
+jpeg(filename = "dds_normal_transform.jpg")
+meanSdPlot(assay(vsd1))
+dev.off()
+
+
+rld1 <- rlog(dds1, blind=FALSE)
+kable(head(assay(vsd1), 3)) %>% kable_styling()
+jpeg(filename = "dds_normal_transform.jpg")
+meanSdPlot(assay(rld1))
+dev.off()
+
+##Effects of transformations on the variance
+# this gives log2(n + 1)
+
+#Mature
+ntd1 <- normTransform(dds1)
+jpeg(filename = "dds_normal_transform.jpg")
+meanSdPlot(assay(ntd1))
+dev.off()
+
+meanSdPlot(assay(ntd1))
+
+meanSdPlot(assay(vsd1))
+
+meanSdPlot(assay(rld1))
+
+par( mfrow = c( 1, 2 ) )
+dds1 <- estimateSizeFactors(dds1)
+plot(log2(counts(dds1, normalized=TRUE)[,1:2] + 1),
+      pch=16, cex=0.3)
+plot(assay(rld1)[,1:2],
+      pch=16, cex=0.3)
+
+```
+#Principal component analysis
+```{r}
+#Mature
+plotPCA(vsd1,intgroup=c("Treatment"))
+
+#using the ggplot function to customize the PCA plot
+#Mature
+pcaData1 <- plotPCA(vsd1, intgroup=c("Treatment"), returnData=TRUE)
+
+
+#intgroup=c("condition", "type")
+#Mature
+percentVar1 <- round(100 * attr(pcaData1, "percentVar1"))
+pca1 <- ggplot(pcaData1, aes(PC1, PC2, color = Treatment)) + 
+  geom_point(size = 3) + geom_text(aes(label = name), vjust = 1) + 
+  xlab(paste0("PC1: ", percentVar1[1],"% variance")) + 
+  ylab(paste0("PC2: ", percentVar1[2],"% variance")) + 
+  coord_fixed()
+pca1
+
+#rld -PCA plot
+#Mature
+plotPCA(rld1, intgroup = c("Treatment", "Lactation_stage"))
+
+(pcadata <- plotPCA(rld1, intgroup = c( "Treatment", "Lactation_stage"), returnData=TRUE))
+```
+
+## Differential expression analysis
+```{r DE}
+#Mature dds
+dds1 <- DESeq(dds1)
+resultsNames(dds1)
+
+
+#Mature res
+res1 <- results(dds1, name="Treatment_S.aureus_vs_Control")
+kable(head(res1)) %>% kable_styling()
+kable(summary(res1)) %>% kable_styling()
+```
+###plot PCA 
+```{r}
+## Principal component plot of the samples
+plotPCA(vsd1,intgroup=c("Treatment"))
+
+#It is also possible to customize the PCA plot using the ggplot function
+pcaData <- plotPCA(vsd1, intgroup=c("Treatment"), returnData=TRUE) #intgroup=c("Treatment", "type")
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+pca <- ggplot(pcaData, aes(PC1, PC2, color=Treatment)) +  #add ", shape=type" in aes()
+  geom_point(size=3) +
+  geom_text(aes(label= name), vjust = 1)+
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  coord_fixed()
+pca
+ggsave('PCA_samples_SC.jpg', plot = pca)
+```
+```{r}
+#res1 <- results(dds1, lfcThreshold = 0.01)
+res1 <- results(dds1)
+```
+
+
+### Log fold change shrinkage for visualization and ranking
+```{r Log}
+resultsNames(dds1)
+
+
+# Maure resLFC
+
+resLFC1 <- lfcShrink(dds1, coef="Treatment_S.aureus_vs_Control")
+kable(head(resLFC1)) %>% kable_styling()
+
+#Exporting only the results which pass an adjusted p value threshold
+
+resSig1 <- subset(res1, padj < 0.01)
+kable(head(resSig1)) %>% kable_styling()
+
+```
+
+
+### p-values and adjusted p-values
+```{r pvalues}
+# order results table by the smallest p value:
+resOrdered1 <- res1[order(res1$pvalue),]
+summary(resOrdered1)
+
+sum(res1$padj < 0.1, na.rm=TRUE)
+sum(res1$pvalue < 0.05, na.rm = TRUE) 
+sum(res1$padj < 0.05, na.rm=TRUE) 
+
+
+## check DE genes with |logFC|>1 & padj < 0.05
+
+#Mature
+res0.05 <- results(dds1, lfcThreshold = 1, alpha = 0.05)
+summary(res0.05)
+
+```
+
+### Independent hypothesis weighting
+```{r weighting}
+#Mature
+resIHW1 <- results(dds1, filterFun=ihw)
+summary(resIHW1)
+sum(resIHW1$padj < 0.05, na.rm=TRUE) 
+metadata(resIHW1)$ihwResult
+```
+
+
+
+## Exploring and exporting results
+```{r Exploring}
+#Dispersion plot
+
+#Mature
+plotDispEsts(dds1, ylim = c(1e-6, 1e2))
+
+#plotMA with only y limit
+DESeq2::plotMA(res1, ylim=c(-5, 5))
+
+
+DESeq2::plotMA(resLFC1, ylim=c(-5, 5))
+
+
+#plotMA with x and y limit
+
+plotMA(res1, ylim=c(-10, 10), xlim = c(0, 6))
+
+plotMA(resLFC1, ylim=c(-10, 10), xlim = c(0, 6))
+
+
+
+#After calling plotMA, one can use the function identify to interactively detect the row number of individual
+#genes by clicking on the plot. One can then recover the gene identifiers by saving the resulting indices:
+
+idx1 <- identify(res1$baseMean, res1$log2FoldChange)
+rownames(res1)[idx1]
+
+
+#Histogram
+hist(res1$pvalue, breaks=20, col="grey")
+hist(res1$padj, breaks=20, col="grey")
+
+
+#Plot counts
+#Mature
+plotCounts(dds1, gene=which.min(res1$padj), intgroup= c("Treatment"))
+
+
+#For customized plotting, an argument returnData specifies that the function should only return a data.frame for plotting with ggplot.
+
+#Mature
+d1 <- plotCounts(dds1, gene=which.min(res1$padj), intgroup="Treatment", 
+                returnData=TRUE)
+
+
+#Mature ggplot
+
+ggplot(d1, aes(x=Treatment, y=count)) + 
+  geom_point(position=position_jitter(w=0.1,h=0)) + 
+  scale_y_log10(breaks=c(200,2000, 10000)) #y-axis coordinate
+
+#More information on results columns
+
+mcols(res1)$description
+
+```
+#Volcano plot
+```{r}
+library(dplyr)
+resa <- as.data.frame(res1)
+
+# The significantly differentially expressed genes are the ones found in the upper-left and upper-right corners.
+# Add a column to the data frame to specify if they are UP- or DOWN- regulated (log2FoldChange respectively positive or negative)
+
+# add a column of NAs
+resa$diffexpressed <- "NO"
+
+# if log2Foldchange > 0.6 and pvalue < 0.05, set as "UP" 
+
+resa$diffexpressed[resa$log2FoldChange > 1 & resa$padj < 0.05] <- "UP"
+
+# if log2Foldchange < -0.6 and pvalue < 0.05, set as "DOWN"
+resa$diffexpressed[resa$log2FoldChange < -1 & resa$padj < 0.05] <- "DOWN"
+
+
+# Re-plot but this time color the points with "diffexpressed"
+p <- ggplot(resa, aes(x=log2FoldChange, y=-log10(padj), col=diffexpressed)) + geom_point() + theme_minimal()
+
+# Add lines as before...
+p2 <- p + geom_vline(xintercept=c(-0.6, 0.6), col="red") +
+        geom_hline(yintercept=-log10(0.05), col="red")
+
+## Change point color 
+
+# 1. by default, it is assigned to the categories in an alphabetical order):
+p3 <- p2 + scale_color_manual(values=c("blue", "black", "red"))
+
+# 2. to automate a bit: create a named vector: the values are the colors to be used, the names are the categories they will be assigned to:
+mycolors <- c("blue", "red", "black")
+names(mycolors) <- c("DOWN", "UP", "NO")
+p3 <- p2 + scale_colour_manual(values = mycolors)
+
+# Now write down the name of genes beside the points...
+# Create a new column "delabel" to de, that will contain the name of genes differentially expressed (NA in case they are not)
+resa$delabel <- NA
+resa$miRNA = gsub("\\.","", row.names(resa))
+
+resa$delabel[resa$diffexpressed != "NO"] <- resa$miRNA[resa$diffexpressed != "NO"]
+
+ggplot(resa, aes(x=log2FoldChange, y=-log10(padj), col=diffexpressed, label=delabel)) +
+    geom_point() + 
+    theme_minimal() +
+    geom_text()
+
+# Finally, we can organize the labels nicely using the "ggrepel" package and the geom_text_repel() function
+# load library
+library(ggrepel)
+# plot adding up all layers we have seen so far
+ggplot(resa, aes(x=log2FoldChange, y=-log10(padj), col=diffexpressed, label=delabel)) +
+        geom_point() + 
+        theme_minimal() +
+        geom_text_repel() +
+        scale_color_manual(values=c("blue", "black", "red")) +
+        geom_vline(xintercept=c(-0.6, 0.6), col="red") +
+        geom_hline(yintercept=-log10(0.05), col="red")
+```
+#To select the top miRNA
+```{r}
+resa = resa[order(abs(resa$log2FoldChange), decreasing = TRUE),]
+topGene = rownames(resa)[1]
+```
+
+### Multi-factor designs?
+```{r MultiFactor}
+#Mature
+kable(colData(dds1)) %>% kable_styling() 
+ddsMF1 <- dds1
+levels(ddsMF1$Treatment)
+levels(ddsMF1$Lactation_stage)
+levels(ddsMF1$Parity)
+
+levels(ddsMF1$Treatment) <- sub("-.*", "", levels(ddsMF1$Treatment))
+levels(ddsMF1$Treatment)
+
+levels(ddsMF1$Lactation_stage) <- sub("-.*", "", levels(ddsMF1$Lactation_stage))
+levels(ddsMF1$Lactation_stage)
+
+levels(ddsMF1$Parity) <- sub("-.*", "", levels(ddsMF1$Parity))
+levels(ddsMF1$Parity)
+
+design(ddsMF1) <- formula(~ Lactation_stage + Parity + Treatment)
+ddsMF1 <- DESeq(ddsMF1)
+
+resMF1 <- results(ddsMF1)
+kable(head(resMF1)) %>% kable_styling()
+
+resMFType1a <- results(ddsMF1, contrast=c("Treatment", "S.aureus", "Control"))
+kable(head(resMFType1a)) %>% kable_styling()
+```
+
+#Heat map
+```{r}
+#### Data quality assessment by sample clustering and visualization
+
+#Mature
+select1 <- order(rowMeans(counts(dds1,normalized=TRUE)), 
+                decreasing=TRUE)[1:20]
+
+df1 <- as.data.frame(colData(dds1)[, c("Lactation_stage", "Parity", "DIM", "Herd_name", "Udder_quarter", "Cow_number", "Treatment")]) 
+
+
+rownames(df1) <- colnames(assay(ntd1)[select1,])
+colnames(df1) <- c("Lactation_stage", "Parity", "DIM", "Herd_name", "Udder_quarter", "Cow_number", "Treatment")
+
+
+pheat1 <- pheatmap(assay(ntd1)[select1,], 
+                  cluster_rows=FALSE, 
+                  show_rownames=FALSE,
+                  cluster_cols=FALSE, 
+                  annotation_col=df1)
+
+pheat_v1 <- pheatmap(assay(vsd1)[select1,], cluster_rows=FALSE, show_rownames=FALSE,
+                    cluster_cols=FALSE, annotation_col=df1)
+```
+
+#Heat map of sample to sample distances 
+```{r}
+#Mature
+sampleDists1 <- dist(t(assay(vsd1)))
+sampleDistMatrix1 <- as.matrix(sampleDists1)
+rownames(sampleDistMatrix1) <- paste(vsd1$Treatment,colnames(vsd1),sep = "_")
+colnames(sampleDistMatrix1) <- NULL
+colors1 <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+
+phm1 <- pheatmap(sampleDistMatrix1,
+         clustering_distance_rows=sampleDists1,
+         clustering_distance_cols=sampleDists1,
+         col=colors1)
+
+#Mature
+sampleDists3 <- dist(t(assay(rld1)))
+sampleDistMatrix3 <- as.matrix(sampleDists3)
+rownames(sampleDistMatrix3) <- paste(rld1$Treatment, rld1$Lactation_stage,sep = "_")
+colnames(sampleDistMatrix3) <- NULL
+colors3 <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+
+phm3 <- pheatmap(sampleDistMatrix3,
+         clustering_distance_rows=sampleDists3,
+         clustering_distance_cols=sampleDists3,
+         col=colors3)
+```
+#Heatmap complete
+```{r}
+library(ggplot2)
+resb <- as.data.frame(cts_snoRNA)
+Data.log.scale <- scale(log10(resb +1))
+y <- as.matrix(Data.log.scale)
+
+hr <- hclust(as.dist(1 - cor(t(y), method = "pearson")), method = "average")
+hc <- hclust(as.dist(1 - cor(y, method = "spearman")), method = "average")
+mycl <-  cutree(hr, h = max(hr$height) / 1.01)
+mycolhc <-   rainbow(length(unique(mycl)), start = 0.1, end = 0.9)
+mycolhc <- mycolhc[as.vector(mycl)]
+cluster <- as.matrix(mycl)
+
+library(gplots)
+heatmap.2(
+  y,
+  Rowv = as.dendrogram(hr),
+  Colv = as.dendrogram(hc),
+  col = greenred(75),
+  density.info = "none",
+  trace = "none",
+  dendrogram = "both",
+  scale = "row",
+  labRow = NULL,
+  labCol = NULL,
+   margins = c(5, 10),
+  RowSideColors = mycolhc)
+```
+
+
+# Variations to the standard workflow
+```{r Variations}
+#Mature
+dds1 <- estimateSizeFactors(dds1)
+dds1 <- estimateDispersions(dds1)
+dds1 <- nbinomWaldTest(dds1)
+head(resa)
+```
+###order results table by the smallest p value  
+
+```{r}
+resOrdered <- res1[order(res1$pvalue),]
+
+summary(resOrdered)
+##p-values and adjusted p-values
+
+# order results table by the smallest p value:
+sum(res1$pvalue < 0.05, na.rm = TRUE) 
+
+sum(res1$padj < 0.05, na.rm=TRUE)
+```
+####Exporting only the results which pass an adjusted p value threshold
+```{r}
+resSig <- subset(resOrdered, padj < 0.05)
+
+kable(head(resSig)) %>% kable_styling()
+#Label
+
+resSig$diffexpressed[resSig$log2FoldChange > 1 & resSig$padj < 0.05] <- "UP"
+
+# if log2Foldchange < -1 and pvalue < 0.05, set as "DOWN"
+
+resSig$diffexpressed[resSig$log2FoldChange < -1 & resSig$padj < 0.05] <- "DOWN"
+
+resSig$miRNA = gsub("\\.","", row.names(resSig))
+
+resdata <- merge(as.data.frame(resSig), as.data.frame(vsd1@assays@data@listData[[1]]), by="row.names", sort=FALSE)
+
+write.csv(as.data.frame(resSig), file="Saureus_snoRNA.csv")
+```
+
+####merge with normalized count data
+```{r}
+resdata <- merge(as.data.frame(resSig), as.data.frame(vsd1@assays@data@listData[[1]]), by="row.names", sort=FALSE)
+
+#write.csv(as.data.frame(resdata), file="Saureus_snoRNA.csv")
+
+write.csv(resdata, "SAu_snoRNA.csv")
+
+```
